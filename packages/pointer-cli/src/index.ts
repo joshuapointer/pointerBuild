@@ -12,6 +12,7 @@ import { runPromote } from './commands/promote.js';
 import { runStatus } from './commands/status.js';
 import { runLogin } from './commands/login.js';
 import { runLogout } from './commands/logout.js';
+import { runWizard } from './wizard.js';
 import { fail } from './utils/logger.js';
 
 dotenv.config();
@@ -100,6 +101,24 @@ program
   .command('logout')
   .description('Clear stored credentials')
   .action(wrap(runLogout));
+
+program
+  .command('wizard')
+  .description('Interactive setup wizard for pointerBuild')
+  .option('--ci', 'Run in non-interactive/CI mode')
+  .option('--work-dir <path>', 'Working directory for pointerBuild')
+  .option('--github-token <token>', 'GitHub token for API access')
+  .option('--github-owner <owner>', 'GitHub owner/org')
+  .option('--github-repo <repo>', 'GitHub repository name')
+  .option('--vps-host <host>', 'VPS hostname or IP')
+  .option('--vps-user <user>', 'SSH user for VPS')
+  .option('--vps-port <port>', 'SSH port', '22')
+  .option('--domain <domain>', 'Domain for the VPS')
+  .option('--email <email>', 'Email for Let\'s Encrypt')
+  .option('--app-id <id>', 'App ID')
+  .option('--skip-vps', 'Skip VPS provisioning step')
+  .option('--skip-github', 'Skip GitHub Actions setup')
+  .action(wrap(runWizard));
 
 program.parseAsync(process.argv).catch((err) => fail((err as Error).message ?? 'Command failed', err));
 
