@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
-import { body, param, query as q, validationResult } from 'express-validator';
+import { body, param, validationResult } from 'express-validator';
 import { query } from '../db/pool.js';
 import { upload as s3Upload, deleteObject, getSignedUrl } from '../storage/s3.js';
 import { HttpError } from '../middleware/errorHandler.js';
@@ -164,70 +164,6 @@ updatesRouter.delete(
       const row = result.rows[0];
       if (!row) throw new HttpError(404, 'Update not found');
       res.json({ id: row.id, status: row.status });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-updatesRouter.get(
-  '/history/:appId',
-  param('appId').isString().trim().notEmpty(),
-  q('platform').optional().isIn(['ios', 'android']),
-  q('runtimeVersion').optional().isString(),
-  q('limit').optional().isInt({ min: 1, max: 200 }).toInt(),
-  q('offset').optional().isInt({ min: 0 }).toInt(),
-  async (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) throw new HttpError(400, errors.array().map((e) => e.msg).join('; '));
-
-      const { appId } = req.params as { appId: string };
-      const queryParams = (req.query ?? {}) as Record<string, unknown>;
-      const platform = queryParams.platform as string | undefined;
-      const runtimeVersion = queryParams.runtimeVersion as string | undefined;
-      const limit = (queryParams.limit as number | undefined) ?? 20;
-      const offset = (queryParams.offset as number | undefined) ?? 0;
-
-      const params: any[] = [appId];
-      let where = 'app_id = $1';
-      if (platform) {
-        params.push(platform);
-        where += ` AND platform = $${params.length}`;
-      }
-      if (runtimeVersion) {
-        params.push(runtimeVersion);
-        where += ` AND runtime_version = $${params.length}`;
-      }
-      params.push(limit);
-      const limitIdx = params.length;
-      params.push(offset);
-      const offsetIdx = params.length;
-
-      const result = await query<UpdateRow>(
-        `SELECT * FROM updates WHERE ${where}
-         ORDER BY created_at DESC
-         LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
-        params,
-      );
-      const countResult = await query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM updates WHERE ${where}`,
-        params.slice(0, params.length - 2),
-      );
-      res.json({
-        updates: result.rows.map((r) => ({
-          id: r.id,
-          appId: r.app_id,
-          platform: r.platform,
-          version: r.version,
-          runtimeVersion: r.runtime_version,
-          status: r.status,
-          createdAt: r.created_at,
-        })),
-        total: Number(countResult.rows[0]?.count ?? 0),
-        limit,
-        offset,
-      });
     } catch (err) {
       next(err);
     }

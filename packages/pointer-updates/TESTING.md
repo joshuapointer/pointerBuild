@@ -58,7 +58,7 @@ curl -L http://localhost:3001/updates/com.example.myapp/ios/49/<UPDATE_ID> -o bu
 
 ## 8. List update history
 ```bash
-curl "http://localhost:3001/updates/history/com.example.myapp?platform=ios&runtimeVersion=49&limit=20&offset=0"
+curl "http://localhost:3001/apps/com.example.myapp/history?platform=ios&runtimeVersion=49&limit=20&offset=0"
 ```
 
 ## 9. Soft-delete (archive) an update
