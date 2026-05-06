@@ -1,0 +1,51 @@
+{
+  "name": "@pointer/cli",
+  "version": "0.1.0",
+  "description": "Unified CLI for pointerBuild — self-hosted EAS replacement",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "pointer": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc && chmod +x dist/index.js",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "expo",
+    "eas",
+    "cli",
+    "ota",
+    "react-native",
+    "pointer"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "form-data": "^4.0.0",
+    "fs-extra": "^11.2.0",
+    "inquirer": "^9.3.4",
+    "ora": "^8.0.1",
+    "update-notifier": "^7.1.0",
+    "yaml": "^2.4.5"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^20.14.10",
+    "@types/update-notifier": "^6.0.8",
+    "typescript": "^5.5.3"
+  }
+}
