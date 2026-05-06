@@ -1,0 +1,120 @@
+name: pointer-android
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtimeVersion:
+        description: Runtime version for the build / update
+        required: true
+        default: '1.0.0'
+      channel:
+        description: Release channel
+        required: true
+        default: production
+      appId:
+        description: App identifier (e.g. com.mycompany.myapp)
+        required: true
+      mode:
+        description: 'export (OTA bundle) or build (APK/AAB)'
+        required: true
+        default: export
+        type: choice
+        options:
+          - export
+          - build
+
+concurrency:
+  group: pointer-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      POINTER_DEPLOY_URL: ${{ secrets.POINTER_DEPLOY_URL }}
+      POINTER_UPDATES_URL: ${{ secrets.POINTER_UPDATES_URL }}
+      POINTER_API_KEY: ${{ secrets.POINTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Set up JDK 17
+        if: ${{ inputs.mode == 'build' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Expo export (Android bundle)
+        if: ${{ inputs.mode == 'export' }}
+        run: npx expo export --platform android --output-dir ./dist
+
+      - name: Package OTA bundle
+        if: ${{ inputs.mode == 'export' }}
+        id: pkg
+        run: |
+          set -euo pipefail
+          ARCHIVE="android-${{ github.run_number }}.zip"
+          (cd dist && zip -r "../$ARCHIVE" .)
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload OTA bundle to pointer-updates
+        if: ${{ inputs.mode == 'export' }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -X POST "$POINTER_UPDATES_URL/updates" \
+            -H "Authorization: Bearer $POINTER_API_KEY" \
+            -F "appId=${{ inputs.appId }}" \
+            -F "platform=android" \
+            -F "version=${{ github.ref_name }}" \
+            -F "runtimeVersion=${{ inputs.runtimeVersion }}" \
+            -F "bundle=@${{ steps.pkg.outputs.archive }}"
+
+      - name: Native Android build
+        if: ${{ inputs.mode == 'build' }}
+        run: |
+          set -euo pipefail
+          npx expo prebuild --platform android --non-interactive
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+          cd ..
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/release/app-release.apk \
+             artifacts/android-${{ github.run_number }}.apk
+
+      - name: Upload artifact (build mode)
+        if: ${{ inputs.mode == 'build' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ github.run_number }}
+          path: artifacts/android-${{ github.run_number }}.apk
+          retention-days: 14
+
+      - name: Register build with pointer-deploy
+        if: ${{ inputs.mode == 'build' }}
+        run: |
+          set -euo pipefail
+          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
+          curl -fsSL -X POST "$POINTER_DEPLOY_URL/builds" \
+            -H "Authorization: Bearer $POINTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            --data @- <<EOF
+          {
+            "appId": "${{ inputs.appId }}",
+            "platform": "android",
+            "version": "${{ github.ref_name }}",
+            "buildNumber": ${{ github.run_number }},
+            "artifactUrl": "$ARTIFACT_URL",
+            "branch": "${{ github.ref_name }}",
+            "commitSha": "${{ github.sha }}"
+          }
+          EOF

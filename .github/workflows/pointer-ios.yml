@@ -1,0 +1,118 @@
+name: pointer-ios
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtimeVersion:
+        description: Runtime version for the build / update
+        required: true
+        default: '1.0.0'
+      channel:
+        description: Release channel
+        required: true
+        default: production
+      appId:
+        description: App identifier (e.g. com.mycompany.myapp)
+        required: true
+      mode:
+        description: 'export (OTA bundle) or build (native archive)'
+        required: true
+        default: export
+        type: choice
+        options:
+          - export
+          - build
+
+concurrency:
+  group: pointer-ios-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      POINTER_DEPLOY_URL: ${{ secrets.POINTER_DEPLOY_URL }}
+      POINTER_UPDATES_URL: ${{ secrets.POINTER_UPDATES_URL }}
+      POINTER_API_KEY: ${{ secrets.POINTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Expo export (iOS bundle)
+        if: ${{ inputs.mode == 'export' }}
+        run: npx expo export --platform ios --output-dir ./dist
+
+      - name: Package OTA bundle
+        if: ${{ inputs.mode == 'export' }}
+        id: pkg
+        run: |
+          set -euo pipefail
+          ARCHIVE="ios-${{ github.run_number }}.zip"
+          (cd dist && zip -r "../$ARCHIVE" .)
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload OTA bundle to pointer-updates
+        if: ${{ inputs.mode == 'export' }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -X POST "$POINTER_UPDATES_URL/updates" \
+            -H "Authorization: Bearer $POINTER_API_KEY" \
+            -F "appId=${{ inputs.appId }}" \
+            -F "platform=ios" \
+            -F "version=${{ github.ref_name }}" \
+            -F "runtimeVersion=${{ inputs.runtimeVersion }}" \
+            -F "bundle=@${{ steps.pkg.outputs.archive }}"
+
+      - name: Native iOS build (xcodebuild archive)
+        if: ${{ inputs.mode == 'build' }}
+        run: |
+          set -euo pipefail
+          npx expo prebuild --platform ios --non-interactive
+          cd ios
+          pod install
+          xcodebuild -workspace *.xcworkspace \
+            -scheme "$(ls *.xcworkspace | sed 's/.xcworkspace//' | head -n1)" \
+            -configuration Release \
+            -archivePath build/App.xcarchive \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO archive
+          cd ..
+          mkdir -p artifacts
+          tar -czf artifacts/ios-${{ github.run_number }}.tgz ios/build/App.xcarchive
+
+      - name: Upload artifact (build mode)
+        if: ${{ inputs.mode == 'build' }}
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ github.run_number }}
+          path: artifacts/ios-${{ github.run_number }}.tgz
+          retention-days: 14
+
+      - name: Register build with pointer-deploy
+        if: ${{ inputs.mode == 'build' }}
+        run: |
+          set -euo pipefail
+          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
+          curl -fsSL -X POST "$POINTER_DEPLOY_URL/builds" \
+            -H "Authorization: Bearer $POINTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            --data @- <<EOF
+          {
+            "appId": "${{ inputs.appId }}",
+            "platform": "ios",
+            "version": "${{ github.ref_name }}",
+            "buildNumber": ${{ github.run_number }},
+            "artifactUrl": "$ARTIFACT_URL",
+            "branch": "${{ github.ref_name }}",
+            "commitSha": "${{ github.sha }}"
+          }
+          EOF
